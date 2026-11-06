@@ -1,0 +1,6 @@
+.venv/
+model/
+model_v*/
+checkpoints/
+__pycache__/
+*.pyc
