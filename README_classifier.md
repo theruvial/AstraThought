@@ -184,12 +184,12 @@ not tune them against test.jsonl after that.
 
 ## How it fits with the bot
 
-Astrabot `cogs/tasks.py` watches mcdungeons #general, sends each
-message to this service, and routes the pieces by the decision
+Astrabot `cogs/tasks.py` watches mcdungeons #astra-feedback, sends
+each message to this service, and routes the pieces by the decision
 the service returns: `auto_task` pieces become wiki tasks and
-embeds in #astra-feedback, `review` pieces become "Needs review"
-embeds in #astra-feedback with a thread, `auto_drop` pieces are
-dropped silently. If this service is down, the cog logs it and
+embeds in #todo, `review` pieces become "Needs review" embeds in
+#human-intervention with a thread, `auto_drop` pieces are dropped
+silently. A human "Is a task" ruling moves the piece to #todo. If this service is down, the cog logs it and
 does nothing. It never crashes the bot and never retries in a loop.
 
 ## Retraining

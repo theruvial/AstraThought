@@ -1,5 +1,7 @@
 # Astrabot handoff: task classifier and tasks cog
 
+> **Superseded.** This file is a historical record from 2026-11-06 at 05:55. The tasks cog and classifier service were built afterwards, and the channels have changed. For the current system, read `README_classifier.md` here and `README_tasks.md` in the Astrabot repo.
+
 **For:** a Muse Wonder agent continuing this work.
 **Written:** 2026-11-06 at 05:55, by Claude Code (Opus 5.5).
 **Owner:** Thea (GitHub `theruvial`).

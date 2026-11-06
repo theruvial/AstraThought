@@ -1,6 +1,8 @@
 # AstraThought
 
-A small classifier that decides whether a Discord message is a task, trained on Thea's judgment of mcdungeons #general.
+A small classifier that decides whether a Discord message is a task, trained on Thea's judgment.
+
+The Astrabot tasks cog sends it each human message from #astra-feedback. Tasks go to #todo, unclear items go to #human-intervention, and the rest are dropped. For how the running service works, see `README_classifier.md`.
 
 ## Files
 
@@ -11,6 +13,9 @@ A small classifier that decides whether a Discord message is a task, trained on 
 | `test.jsonl` | Newer items kept out of training, used to score it |
 | `train_task_model.py` | Trains the model, saves it to `tasks-AstraThought-v2\`, prints its score |
 | `check_message.py` | Tries the trained model on one message |
+| `classifier_service.py` | The HTTP service the bot calls, on `127.0.0.1:13383` |
+| `split_tasks.py` | Splits a message into pieces before classifying |
+| `score_distribution.py` | Measures scores on `test.jsonl` to set the review band |
 | `requirements.txt` | Pinned packages for the virtual environment |
 
 Each line of the data holds `text`, `label` (1 is a task, 0 is not), `reason`, `position` and `reviewed`. Only `text` and `label` are used for training. `reason` records why something was ruled out.
@@ -53,7 +58,7 @@ python train_task_model.py
 
 The first run also downloads the base model, `all-MiniLM-L6-v2`, about 90 MB. The script prints `Running on: cuda:0` for the GPU or `Running on: cpu` for the CPU. On the CPU it should take a few minutes, though it may be slower while the bot is busy.
 
-It finishes by listing its mistakes and printing precision and recall on `test.jsonl`. Compare those with the regex on recent #general: 96% precision and 89% recall, measured before the final label review.
+It finishes by listing its mistakes and printing precision and recall on `test.jsonl`. Compare those with `tasks-AstraThought-v2`: 77% precision and 93% recall on `test.jsonl`. Only deploy a new model if it is not worse.
 
 ## Try it
 
@@ -78,7 +83,9 @@ Do not tune against `test.jsonl` for long. Every round of fixes based on its mis
 
 ## Using it
 
-- Split messages into lines or sentences first. One message can hold many tasks, and in #general 12 messages held 44 of the 113 tasks.
-- Strip `TODO:`, `-` and mentions before classifying, because the training text has them removed.
-- Treat `.open`, `.assign`, `TODO:` and dash lines as strong signals on their own.
-- Most `chat` and `design_note` labels were not individually reviewed by Thea; `reviewed` marks the ones that were.
+The Astrabot Console starts `classifier_service.py`, and the tasks cog calls it. The service does the splitting, cleaning and override checks, so the bot sends raw message text. See `README_classifier.md`.
+
+- **Channels:** the bot reads #astra-feedback, sends `review` pieces to #human-intervention, and posts `auto_task` pieces to #todo.
+- **Rulings:** button clicks become labels and take effect at once through the overrides file. They never go straight into `train.jsonl`.
+- **Retraining:** only after 50 new labels. Merge them into `train.jsonl`, retrain, and compare on the unchanged `test.jsonl`.
+- **Labels:** most `chat` and `design_note` labels were not individually reviewed by Thea. `reviewed` marks the ones that were.
