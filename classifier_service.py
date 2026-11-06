@@ -1,0 +1,399 @@
+"""AstraThought classifier service.
+
+Serves the local SetFit task classifier over HTTP on loopback only,
+so the Astrabot tasks cog (which runs in a Python without PyTorch)
+can ask it about Discord messages without loading the model itself.
+
+Run from the AstraThought checkout, inside its virtual environment:
+
+    .\\.venv\\Scripts\\Activate.ps1
+    python classifier_service.py
+
+Endpoints (all JSON, loopback only, no auth):
+
+    GET  /health
+        {"ok": true, "model_loaded": true, "model_dir": "..."}
+    POST /classify
+        {"text": "salvage is broken"}
+        -> {"ok": true, "pieces": [{"text": ..., "score": 0.12,
+        "decision": "auto_drop", "trigger": "none"}]}
+    POST /classify_batch
+        {"texts": ["...", "..."]}
+        -> {"ok": true, "results": [{"text": ..., "pieces": [...]}, ...]}
+
+Decisions, per piece:
+    auto_task  score >= HIGH (0.75)
+    auto_drop  score <= LOW (0.25)
+    review     anything in between, or any review trigger fires
+
+HIGH and LOW are placeholders. They must be set by measuring the
+score distribution on test.jsonl with score_distribution.py first.
+Do not pick final thresholds by guessing, and do not tune them
+against test.jsonl after that measurement, or the test set stops
+being held out. One measurement pass to pick the band, then leave
+it alone.
+
+Review triggers, in addition to the score band:
+    model_regex_disagreement  a cheap rule (TODO:, imperative start,
+        ".open" / ".assign") says task and the model says not, or the
+        reverse. The handoff regex scored 92% precision / 68% recall
+        with different errors from the model, so disagreement is a
+        good reason to ask a human.
+    suggestion_marker  the model flags the piece as a task, but it
+        contains suggestion wording ("we should", "I think",
+        "maybe we need", "we need to"). These were 3 of the 8 false
+        alarms in the v2 test run.
+    short_observation  under 8 words, no imperative verb, e.g.
+        "salvage is broken" (a task) vs "asteroid field is not an
+        asteroid field" (not a task, per Thea). Same shape, opposite
+        rulings, so a human makes the call.
+    split_disagreement  the message split into several pieces, some
+        auto and some in the review band. The band piece goes to
+        review with this trigger instead of "score_band".
+
+Human overrides:
+    Before the model runs, each piece is checked against an overrides
+    file (env TASK_OVERRIDES_PATH, default data/task_overrides.json
+    next to this file) mapping normalized text to label 0 or 1.
+    A hit skips the model and returns decision auto_task / auto_drop
+    with trigger "human_override" and score 1.0 / 0.0. The file is
+    reloaded on every request, so a ruling takes effect immediately
+    without restarting the service or retraining. The cog writes
+    this file when a human rules on a review item or a confirmed
+    task. Overrides never go into train.jsonl on their own.
+
+Model loading:
+    The SetFit model is loaded once at startup from
+    ./tasks-AstraThought-v2 (env ASTRATHOUGHT_MODEL_DIR). SetFit and
+    torch are imported lazily inside load_model(), so importing this
+    module without torch installed does not crash. If the model cannot be loaded, the
+    service still starts and /health reports model_loaded false,
+    but /classify and /classify_batch return 503. Never upgrade
+    torch past 2.14.0+cu126: 2.15+ dropped GTX 1070 support.
+
+Retraining:
+    This service does not train. Retraining is a separate batch job
+    (train_task_model.py, from the base model, about 5 minutes) and
+    only happens when 50 new labels have been collected, no matter
+    how long that takes. No per-ruling micro-training.
+
+Stdlib only. No new dependencies.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import re
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+from split_tasks import IMPERATIVES, split_message
+
+log = logging.getLogger("classifier_service")
+
+HERE = Path(__file__).resolve().parent
+
+# Placeholder thresholds. Set from score_distribution.py output.
+HIGH = 0.75
+LOW = 0.25
+
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 13383
+DEFAULT_MODEL_DIR = HERE / "tasks-AstraThought-v2"
+
+SUGGESTION_MARKERS = (
+    "we should",
+    "i think",
+    "maybe we need",
+    "we need to",
+    "we could",
+    "i feel like",
+    "should we",
+)
+
+_RULE_TODO_RE = re.compile(r"^\s*(TODO|FIXME|XXX)\s*:", re.IGNORECASE)
+_RULE_COMMAND_RE = re.compile(r"^\s*\.(open|assign)\b", re.IGNORECASE)
+
+
+def normalize_text(text: str) -> str:
+    """Collapse whitespace and lowercase, for override lookup."""
+    return re.sub(r"\s+", " ", text or "").strip().lower()
+
+
+def _first_word(text: str) -> str:
+    match = re.match(r"([A-Za-z]+)", text.strip())
+    return match.group(1).lower() if match else ""
+
+
+def _has_imperative(text: str) -> bool:
+    words = re.findall(r"[A-Za-z]+", text.lower())
+    return any(word in IMPERATIVES for word in words)
+
+
+def rule_says_task(piece: str, raw_text: str = "") -> bool:
+    """Cheap rule: TODO:, .open/.assign, or an imperative start.
+
+    This is a disagreement detector, not a task detector on its own.
+    The splitter strips TODO: from pieces, so check the raw text too.
+    """
+    if _RULE_TODO_RE.search(raw_text or piece):
+        return True
+    if _RULE_COMMAND_RE.search(piece):
+        return True
+    return _first_word(piece) in IMPERATIVES
+
+
+def is_short_observation(piece: str) -> bool:
+    """Under 8 words, no imperative verb anywhere in the piece."""
+    words = piece.split()
+    if len(words) >= 8 or len(words) == 0:
+        return False
+    return not _has_imperative(piece)
+
+
+def decide_piece(piece: str, score: float, raw_text: str = "",
+                 split_disagrees: bool = False) -> dict:
+    """Decide one split piece from its model score and the triggers."""
+    model_says_task = score >= 0.5
+    rule_task = rule_says_task(piece, raw_text)
+    lowered = piece.lower()
+
+    if rule_task != model_says_task:
+        return {"text": piece, "score": round(score, 4),
+                "decision": "review", "trigger": "model_regex_disagreement"}
+    if model_says_task and any(m in lowered for m in SUGGESTION_MARKERS):
+        return {"text": piece, "score": round(score, 4),
+                "decision": "review", "trigger": "suggestion_marker"}
+    if is_short_observation(piece):
+        return {"text": piece, "score": round(score, 4),
+                "decision": "review", "trigger": "short_observation"}
+    if split_disagrees and LOW < score < HIGH:
+        return {"text": piece, "score": round(score, 4),
+                "decision": "review", "trigger": "split_disagreement"}
+    if score >= HIGH:
+        return {"text": piece, "score": round(score, 4),
+                "decision": "auto_task", "trigger": "none"}
+    if score <= LOW:
+        return {"text": piece, "score": round(score, 4),
+                "decision": "auto_drop", "trigger": "none"}
+    return {"text": piece, "score": round(score, 4),
+            "decision": "review", "trigger": "score_band"}
+
+
+def overrides_path() -> Path:
+    raw = os.environ.get("TASK_OVERRIDES_PATH")
+    if raw:
+        return Path(raw)
+    return HERE / "data" / "task_overrides.json"
+
+
+def load_overrides() -> dict:
+    """Read the overrides file fresh. Missing or broken file means none."""
+    path = overrides_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out = {}
+    for key, value in data.items():
+        try:
+            out[normalize_text(str(key))] = int(value)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+class Classifier:
+    """Holds the loaded SetFit model and classifies split pieces."""
+
+    def __init__(self, model_dir: Path):
+        self.model_dir = Path(model_dir)
+        self.model = None
+        self._lock = threading.Lock()
+
+    def load(self) -> bool:
+        """Load the model once. Lazy import so this module imports
+        without torch installed. Returns True if loaded."""
+        try:
+            from setfit import SetFitModel
+        except Exception as exc:  # noqa: BLE001 - report, do not crash
+            log.error("Could not import setfit: %s", exc)
+            return False
+        try:
+            self.model = SetFitModel.from_pretrained(str(self.model_dir))
+        except Exception as exc:  # noqa: BLE001 - report, do not crash
+            log.error("Could not load model from %s: %s", self.model_dir, exc)
+            return False
+        return True
+
+    @property
+    def loaded(self) -> bool:
+        return self.model is not None
+
+    def score_pieces(self, pieces: list) -> list:
+        """predict_proba for each piece. Empty list in, empty list out."""
+        if not pieces:
+            return []
+        with self._lock:
+            probs = self.model.predict_proba(pieces)
+        return [float(row[1]) for row in probs]
+
+    def classify_text(self, text: str) -> dict:
+        """Split one message, check overrides, classify each piece."""
+        pieces = split_message(text or "")
+        if not pieces:
+            return {"ok": True, "pieces": []}
+        overrides = load_overrides()
+        results = []
+        # Score only the pieces that are not overridden, in one batch.
+        to_score = []
+        to_score_index = []
+        for index, piece in enumerate(pieces):
+            label = overrides.get(normalize_text(piece))
+            if label is not None:
+                results.append({
+                    "text": piece,
+                    "score": 1.0 if label == 1 else 0.0,
+                    "decision": "auto_task" if label == 1 else "auto_drop",
+                    "trigger": "human_override",
+                })
+            else:
+                to_score.append(piece)
+                to_score_index.append(index)
+        scores = self.score_pieces(to_score) if to_score else []
+        scored = {}
+        for piece, score in zip(to_score, scores):
+            scored[piece] = score
+        # A message split into several pieces where some are auto and
+        # some are in the band: the band pieces get split_disagreement.
+        decisions = [scored.get(p) for p in pieces]
+        has_auto = any(s is not None and (s >= HIGH or s <= LOW)
+                       for s in decisions)
+        has_band = any(s is not None and LOW < s < HIGH for s in decisions)
+        split_disagrees = has_auto and has_band
+        final = {}
+        for index, piece in enumerate(pieces):
+            if results and any(r["text"] == piece for r in results):
+                continue
+            score = scored[piece]
+            final[piece] = decide_piece(
+                piece, score, raw_text=text or "",
+                split_disagrees=split_disagrees)
+        ordered = []
+        for piece in pieces:
+            hit = next((r for r in results if r["text"] == piece), None)
+            ordered.append(hit if hit is not None else final[piece])
+        return {"ok": True, "pieces": ordered}
+
+
+CLASSIFIER = Classifier(DEFAULT_MODEL_DIR)
+
+
+class _Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, fmt, *args):  # keep stdout quiet, use logging
+        log.info("%s - %s", self.address_string(), fmt % args)
+
+    def _send_json(self, status: int, payload: dict) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _read_json(self):
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return None
+        if length <= 0 or length > 1_000_000:
+            return None
+        try:
+            return json.loads(self.rfile.read(length).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return None
+
+    def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler naming
+        if self.path == "/health":
+            self._send_json(200, {
+                "ok": True,
+                "model_loaded": CLASSIFIER.loaded,
+                "model_dir": str(CLASSIFIER.model_dir),
+            })
+            return
+        self._send_json(404, {"ok": False, "error": "not found"})
+
+    def do_POST(self):  # noqa: N802 - BaseHTTPRequestHandler naming
+        if self.path not in ("/classify", "/classify_batch"):
+            self._send_json(404, {"ok": False, "error": "not found"})
+            return
+        if not CLASSIFIER.loaded:
+            self._send_json(503, {"ok": False, "error": "model not loaded"})
+            return
+        payload = self._read_json()
+        if payload is None:
+            self._send_json(400, {"ok": False, "error": "invalid JSON body"})
+            return
+        try:
+            if self.path == "/classify":
+                text = payload.get("text")
+                if not isinstance(text, str):
+                    self._send_json(400, {"ok": False,
+                                          "error": "text is required"})
+                    return
+                self._send_json(200, CLASSIFIER.classify_text(text))
+                return
+            texts = payload.get("texts")
+            if not isinstance(texts, list) or not all(
+                    isinstance(t, str) for t in texts):
+                self._send_json(400, {"ok": False,
+                                      "error": "texts must be a list of strings"})
+                return
+            results = []
+            for text in texts:
+                result = CLASSIFIER.classify_text(text)
+                results.append({"text": text, "pieces": result["pieces"]})
+            self._send_json(200, {"ok": True, "results": results})
+        except Exception as exc:  # noqa: BLE001 - never crash on one request
+            log.exception("Classify failed: %s", exc)
+            self._send_json(500, {"ok": False, "error": "classify failed"})
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="AstraThought classifier service")
+    parser.add_argument("--host", default=os.environ.get(
+        "CLASSIFIER_HOST", DEFAULT_HOST))
+    parser.add_argument("--port", type=int, default=int(os.environ.get(
+        "CLASSIFIER_PORT", str(DEFAULT_PORT))))
+    parser.add_argument("--model-dir", default=os.environ.get(
+        "ASTRATHOUGHT_MODEL_DIR", str(DEFAULT_MODEL_DIR)))
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(message)s")
+    global CLASSIFIER  # noqa: PLW0603 - set once at startup
+    CLASSIFIER = Classifier(args.model_dir)
+    if not CLASSIFIER.load():
+        log.warning("Model did not load from %s. /health will report "
+                    "model_loaded false and /classify will return 503.",
+                    args.model_dir)
+    server = ThreadingHTTPServer((args.host, args.port), _Handler)
+    log.info("Classifier service listening on %s:%s, model %s, loaded=%s",
+             args.host, args.port, args.model_dir, CLASSIFIER.loaded)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()
