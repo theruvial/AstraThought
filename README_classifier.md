@@ -143,7 +143,8 @@ recorded, and their buttons go quiet.
 - Approve/disagree answers "is this a task?". For a review decision
   it answers the lean shown after the `--`: score at or above 0.5
   leans task, below leans not a task.
-- The panel polls `GET /decisions` on this service and posts
+- The panel fetches `GET /decisions` when the service logs a new
+  decision, and when the service starts; it never polls. It posts
   rulings to `POST /decisions/<id>/rule`. If the service is not
   running, the panel says so instead of showing decisions.
 
