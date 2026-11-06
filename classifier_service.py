@@ -25,12 +25,19 @@ Endpoints (all JSON, loopback only, no auth):
     That is the classifier's thought process, visible in the console
     pane while the bot runs. Nothing is logged for /health checks.
 
-    Each logged piece also gets an id number (#1, #2, ...). Type in
-    the console window to rule on one:
+    Each logged piece also gets an id number (#1, #2, ...). The
+    Astrabot Console shows the last 50 in a decisions panel, with an
+    approve button and a disagree button per decision, and a search
+    box to filter them. The panel talks to this service:
 
-        <id> agree      the bot was right about decision #id
-        <id> disagree   the bot was wrong about decision #id
-        list             show recent decisions with their ids
+        GET  /decisions
+            {"ok": true, "decisions": [{id, text, score, decision,
+            trigger, reason, label, ruled_label}, ...]} most recent
+            first, up to 50. label is the bot's verdict as 1/0 (for
+            review pieces, the lean); ruled_label is the recorded
+            ruling, or null when nobody has ruled yet.
+        POST /decisions/<id>/rule
+            {"agree": true} -> {"ok": true, "id": 12, "label": 1, ...}
 
     Agree/disagree answers "is this a task?". For review decisions
     it answers the lean (score >= 0.5 leans task). The ruling is
@@ -108,7 +115,6 @@ import json
 import logging
 import os
 import re
-import sys
 import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -270,30 +276,18 @@ def load_overrides(path: Path | None = None) -> dict:
     return out
 
 
-_CONSOLE_HELP = [
-    "Classifier console commands:",
-    "  <id> agree      the bot was right about decision #id",
-    "  <id> disagree   the bot was wrong about decision #id",
-    "  <id>            show decision #id and what agree/disagree would record",
-    "  list            show recent decisions with their ids",
-    "  help            show this",
-    "Agree/disagree answers 'is this a task?'. For review decisions it",
-    "answers the lean (score >= 0.5 leans task). Every ruling is saved",
-    "as a training label and updates the overrides file, so it takes",
-    "effect immediately without restarting the service.",
-]
-
-
 class DecisionRegistry:
-    """Numbered console decisions, so a human can rule on them by id.
+    """Numbered decisions, so a human can rule on them by id.
 
     Every classified piece gets a sequential id when it is logged.
-    Typing "<id> agree" or "<id> disagree" in the console records a
-    training label for that piece's text and updates the overrides
-    file, so the ruling takes effect immediately. Agree means the bot
-    was right; disagree means the opposite. For review pieces there
-    is no verdict, so agree/disagree answers the lean: score >= 0.5
-    leans task, below leans not a task.
+    The Astrabot Console shows them in a decisions panel with an
+    approve button and a disagree button, which call
+    POST /decisions/<id>/rule. Ruling records a training label for
+    that piece's text and updates the overrides file, so the ruling
+    takes effect immediately. Agree means the bot was right;
+    disagree means the opposite. For review pieces there is no
+    verdict, so agree/disagree answers the lean: score >= 0.5 leans
+    task, below leans not a task.
 
     Only the most recent KEEP decisions are kept; ids keep counting
     up, and an id that has expired answers "unknown". Labels use the
@@ -320,6 +314,7 @@ class DecisionRegistry:
                 self._next_id += 1
                 entry = dict(piece)
                 entry["id"] = entry_id
+                entry["ruled_label"] = None
                 if piece["decision"] == "auto_task":
                     entry["label"] = 1
                 elif piece["decision"] == "auto_drop":
@@ -346,23 +341,25 @@ class DecisionRegistry:
                 f"{entry['trigger']}] {_one_line(entry['text'], 80)}"
                 f" -- {verdict}")
 
-    def _list_lines(self):
-        with self._lock:
-            entries = [self._entries[i] for i in self._order[-10:]]
-        if not entries:
-            return ["No decisions yet. They appear here as messages "
-                    "are classified."]
-        return ["Recent decisions:"] + [self.entry_line(e) for e in entries]
+    @staticmethod
+    def public_entry(entry):
+        """The dict served by GET /decisions for one entry."""
+        return {
+            "id": entry["id"],
+            "text": entry["text"],
+            "score": entry["score"],
+            "decision": entry["decision"],
+            "trigger": entry["trigger"],
+            "reason": entry.get("reason", ""),
+            "label": entry["label"],
+            "ruled_label": entry.get("ruled_label"),
+        }
 
-    def _describe_lines(self, entry):
-        label = entry["label"]
-        return [
-            self.entry_line(entry),
-            f"  reason: {entry.get('reason', '')}",
-            f"  'agree' would record it as "
-            f"{'a task' if label else 'not a task'}; 'disagree' as "
-            f"{'not a task' if label else 'a task'}.",
-        ]
+    def list_entries(self, limit=50):
+        """Most recent entries first, up to limit, as public dicts."""
+        with self._lock:
+            entries = [self._entries[i] for i in self._order[-limit:]]
+        return [self.public_entry(e) for e in reversed(entries)]
 
     def _save_label(self, entry, label):
         record = {
@@ -387,57 +384,24 @@ class DecisionRegistry:
                 encoding="utf-8")
             tmp.replace(self.overrides_path)
 
-    def handle_line(self, line):
-        """Handle one console line. Returns output lines to print."""
-        tokens = line.strip().lower().split()
-        if not tokens:
-            return []
-        if tokens in (["list"], ["l"]):
-            return self._list_lines()
-        if tokens in (["help"], ["h"], ["?"]):
-            return list(_CONSOLE_HELP)
-        entry_id = None
-        verdict = None
-        for token in tokens:
-            if token in ("agree", "a"):
-                verdict = "agree"
-            elif token in ("disagree", "d"):
-                verdict = "disagree"
-            elif token.lstrip("#").isdigit():
-                entry_id = int(token.lstrip("#"))
-        if entry_id is None and verdict is None:
-            return ["I did not understand that. Type 'help' for commands."]
-        if entry_id is None:
-            return ["Agree or disagree with which decision? Give its id, "
-                    "e.g. '12 agree'."]
+    def rule(self, entry_id, agree):
+        """Rule on a decision by id. Returns (ok, label, message)."""
         with self._lock:
             entry = self._entries.get(entry_id)
         if entry is None:
-            return [f"Decision #{entry_id} is unknown or has expired. "
-                    "Type 'list' to see recent ones."]
-        if verdict is None:
-            return self._describe_lines(entry)
-        label = entry["label"] if verdict == "agree" else 1 - entry["label"]
+            return False, None, (f"Decision #{entry_id} is unknown or "
+                                 "has expired.")
+        label = entry["label"] if agree else 1 - entry["label"]
         self._save_label(entry, label)
-        return [f"#{entry_id} recorded as "
-                f"{'a task' if label else 'not a task'} "
-                f"({verdict} with the bot). Label saved, override updated."]
+        with self._lock:
+            entry["ruled_label"] = label
+        return True, label, (f"#{entry_id} recorded as "
+                             f"{'a task' if label else 'not a task'} "
+                             f"({'agree' if agree else 'disagree'} "
+                             "with the bot). Label saved, override updated.")
 
 
 DECISION_LOG = DecisionRegistry(labels_path(), overrides_path())
-
-
-def _console_loop():
-    """Read console input in the background. Never blocks serving."""
-    print("Classifier console: type '<id> agree' or '<id> disagree' to rule "
-          "on a decision, 'list' to see recent ones, 'help' for commands.",
-          flush=True)
-    try:
-        for line in sys.stdin:
-            for out in DECISION_LOG.handle_line(line):
-                print(out, flush=True)
-    except Exception as exc:  # noqa: BLE001 - console input must not kill the server
-        log.warning("Console input ended: %s", exc)
 
 
 class Classifier:
@@ -582,9 +546,33 @@ class _Handler(BaseHTTPRequestHandler):
                 "model_dir": str(CLASSIFIER.model_dir),
             })
             return
+        if self.path == "/decisions":
+            self._send_json(200, {
+                "ok": True,
+                "decisions": DECISION_LOG.list_entries(limit=50),
+            })
+            return
         self._send_json(404, {"ok": False, "error": "not found"})
 
     def do_POST(self):  # noqa: N802 - BaseHTTPRequestHandler naming
+        if self.path.startswith("/decisions/") and self.path.endswith("/rule"):
+            parts = self.path.strip("/").split("/")
+            if len(parts) != 3 or not parts[1].isdigit():
+                self._send_json(404, {"ok": False, "error": "not found"})
+                return
+            payload = self._read_json()
+            if payload is None or not isinstance(payload.get("agree"), bool):
+                self._send_json(400, {"ok": False,
+                                      "error": "agree must be true or false"})
+                return
+            ok, label, message = DECISION_LOG.rule(
+                int(parts[1]), payload["agree"])
+            if not ok:
+                self._send_json(404, {"ok": False, "error": message})
+                return
+            self._send_json(200, {"ok": True, "id": int(parts[1]),
+                                  "label": label, "message": message})
+            return
         if self.path not in ("/classify", "/classify_batch"):
             self._send_json(404, {"ok": False, "error": "not found"})
             return
@@ -642,7 +630,6 @@ def main() -> None:
              "auto_task >= %s, auto_drop <= %s, between them goes to review",
              args.host, args.port, args.model_dir, CLASSIFIER.loaded,
              HIGH, LOW)
-    threading.Thread(target=_console_loop, daemon=True).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

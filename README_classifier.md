@@ -121,30 +121,28 @@ classify: 'Fix the guns, we should make them stronger' -> 1 piece(s)
     reason: model says task but the text says 'we should'
 ```
 
-## Ruling on decisions from the console
+## Ruling on decisions from the Astrabot Console
 
-Each logged piece has an id number. Type in the console window
-while the service is running:
+Each logged piece has an id number. The console's decisions panel
+shows the last 50, most recent first, with a search box to filter
+them by text, and an approve button (check mark) and a disagree
+button (X) on each row. Clicking one records a training label for
+that piece and updates the overrides file, so the same text is
+decided by your ruling from then on, without restarting the service
+or retraining. Ruled rows stay in the list, marked with what was
+recorded, and their buttons go quiet.
 
-```text
-2 agree
-3 disagree
-list
-```
-
-- `<id> agree` means the bot was right about that decision.
-  `<id> disagree` means it was wrong. `a` and `d` work too, and
-  `agree 2` works as well as `2 agree`.
-- Agree/disagree answers "is this a task?". For a review decision
+- Approve means the bot was right about that decision. Disagree
+  means it was wrong.
+- Approve/disagree answers "is this a task?". For a review decision
   it answers the lean shown after the `--`: score at or above 0.5
   leans task, below leans not a task.
-- Typing just an id (e.g. `2`) shows that decision and what
-  agree/disagree would record. `list` shows the last 10 decisions.
-  Only the most recent 200 are kept; older ids answer "unknown".
-- Every ruling is appended to the labels file as a training label
-  (same JSONL shape as the cog's labels, reviewer `console`) and
-  updates the overrides file, so the same text is decided by your
-  ruling from then on, without restarting the service or retraining.
+- The panel polls `GET /decisions` on this service and posts
+  rulings to `POST /decisions/<id>/rule`. If the service is not
+  running, the panel says so instead of showing decisions.
+
+Every ruling is appended to the labels file as a training label
+(same JSONL shape as the cog's labels, reviewer `console`).
 
 The labels and overrides files are shared with the cog: set
 `TASKS_LABELS_PATH` and `TASK_OVERRIDES_PATH` once on the host
