@@ -13,7 +13,7 @@ from setfit import SetFitModel, Trainer, TrainingArguments
 
 HERE = Path(__file__).resolve().parent
 BASE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-MODEL_DIR = HERE / "model"
+MODEL_DIR = HERE / "tasks-AstraThought-v2"
 
 
 def load(name):

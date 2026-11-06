@@ -9,7 +9,7 @@ A small classifier that decides whether a Discord message is a task, trained on 
 | `train.jsonl` | Items the model learns from: older mcdungeons #general, plus Aboard The Astra #task-assignment and #work (`source` says which) |
 | `train_recent_only.jsonl` | Backup of the first training set, #general only |
 | `test.jsonl` | Newer items kept out of training, used to score it |
-| `train_task_model.py` | Trains the model, saves it to `model\`, prints its score |
+| `train_task_model.py` | Trains the model, saves it to `tasks-AstraThought-v2\`, prints its score |
 | `check_message.py` | Tries the trained model on one message |
 | `requirements.txt` | Pinned packages for the virtual environment |
 
@@ -67,7 +67,7 @@ python check_message.py "anyway im off to bed now"
 1. Read the mistakes printed after training.
 2. If a label was wrong, fix that line. Change `label` to 1 or 0 in `train.jsonl` or `test.jsonl`.
 3. If it keeps missing a kind of task, add new examples to `train.jsonl` only. Adding them to `test.jsonl` would make the score meaningless.
-4. Train again. Delete `model\` first if you want a clean start.
+4. Train again. Delete `tasks-AstraThought-v2\` first if you want a clean start.
 
 Do not tune against `test.jsonl` for long. Every round of fixes based on its mistakes makes its score less honest, so check new messages from Discord now and then.
 

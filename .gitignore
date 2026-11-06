@@ -1,6 +1,5 @@
 .venv/
-model/
-model_v*/
+tasks-AstraThought-v*/
 checkpoints/
 __pycache__/
 *.pyc

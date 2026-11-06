@@ -8,7 +8,7 @@ from pathlib import Path
 
 from setfit import SetFitModel
 
-MODEL_DIR = Path(__file__).resolve().parent / "model"
+MODEL_DIR = Path(__file__).resolve().parent / "tasks-AstraThought-v2"
 
 
 def main():
