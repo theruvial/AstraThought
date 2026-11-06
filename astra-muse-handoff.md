@@ -94,7 +94,7 @@ The regex comparison is unfair to it, because `TODO:` and dashes are stripped fr
 | `check_message.py` | Tries the model on one message |
 | `README.md` | Setup, training and improvement guide |
 
-These files contain real team messages. Keep them out of any public repo. The folder is not a git repo.
+These files contain real team messages. The folder is the private repo `theruvial/AstraThought` (branch `main`), which must stay private. `.venv`, `model` and `checkpoints` are not in git, so regenerate them by following `README.md`.
 
 **Environment:** `.venv` on Python 3.14, SetFit 1.2.0, base model `sentence-transformers/all-MiniLM-L6-v2`, PyTorch `2.14.0+cu126` on a GTX 1070. **Never upgrade torch**, because 2.15 and later dropped support for this card.
 
