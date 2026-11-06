@@ -46,9 +46,17 @@ needed after retraining.
 
 ## How to run it
 
-Run from the AstraThought checkout, inside its virtual environment.
-Python 3.14 venv, torch 2.14.0+cu126. Never upgrade torch past
-2.14: 2.15+ dropped GTX 1070 support.
+Astrabot Console starts it: the console runs
+`C:\codingShit\AstraThought\.venv\Scripts\python.exe -u classifier_service.py`
+from the AstraThought checkout, shows its output in a Classifier pane
+at the bottom of the window, restarts it on crashes like the other
+services, and stops it when the console closes. "Restart Classifier"
+in the top bar restarts it on its own; "Pull + Restart" does not pull
+AstraThought, so it does not restart the classifier either.
+
+To run it by hand instead, from the AstraThought checkout, inside its
+virtual environment. Python 3.14 venv, torch 2.14.0+cu126. Never upgrade
+torch past 2.14: 2.15+ dropped GTX 1070 support.
 
 ```powershell
 cd C:\codingShit\AstraThought
@@ -57,9 +65,7 @@ python classifier_service.py
 ```
 
 That binds `127.0.0.1:13383` and loads
-`./tasks-AstraThought-v2` once at startup. Run it as another
-pane in Astrabot Console, next to the bot, so it stays up while
-the bot is up. If the model folder is missing, the service still
+`./tasks-AstraThought-v2` once at startup. If the model folder is missing, the service still
 starts, `/health` reports `model_loaded` false, and `/classify`
 returns 503.
 
