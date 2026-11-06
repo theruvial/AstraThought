@@ -11,6 +11,7 @@ A small classifier that decides whether a Discord message is a task, trained on 
 | `test.jsonl` | Newer items kept out of training, used to score it |
 | `train_task_model.py` | Trains the model, saves it to `model\`, prints its score |
 | `check_message.py` | Tries the trained model on one message |
+| `requirements.txt` | Pinned packages for the virtual environment |
 
 Each line of the data holds `text`, `label` (1 is a task, 0 is not), `reason`, `position` and `reviewed`. Only `text` and `label` are used for training. `reason` records why something was ruled out.
 
@@ -18,14 +19,14 @@ These files contain real messages from the server. Keep them out of any public r
 
 ## Set up (once)
 
-Open PowerShell. The first download is several hundred MB.
+Open PowerShell. This downloads a few GB, because it includes the GPU build of PyTorch.
 
 ```powershell
 cd C:\codingShit\AstraThought
 py -3.14 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install setfit
+pip install -r requirements.txt
 ```
 
 If PowerShell blocks `Activate.ps1`, run this once in that window, then activate again:
@@ -34,19 +35,13 @@ If PowerShell blocks `Activate.ps1`, run this once in that window, then activate
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
-If `pip install setfit` fails on Python 3.14, delete `.venv` and repeat the steps with `py -3.12`, installing that version first if needed. This setup has not been test-installed.
-
-## Use the GPU (optional, after setup)
-
-`pip install setfit` gives you a CPU-only PyTorch. The GTX 1070 needs PyTorch 2.14 with CUDA 12.6, because 2.15 and later no longer support that card. Wait for `pip install setfit` to finish, then run this. It downloads a couple of GB.
+Then check the GPU works. This should print `True` and the card's name:
 
 ```powershell
-pip uninstall -y torch
-pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cu126
 python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
 ```
 
-The last line should print `True` and the card's name. Do not run `pip install --upgrade torch` afterwards, because that would bring back a version that cannot use the card.
+`requirements.txt` pins PyTorch 2.14 with CUDA 12.6, because 2.15 and later no longer support the GTX 1070. Do not run `pip install --upgrade torch`. On a newer GPU, or with no GPU, remove the `--extra-index-url` line and the `torch` line first.
 
 ## Train
 

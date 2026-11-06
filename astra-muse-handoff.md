@@ -92,6 +92,7 @@ The regex comparison is unfair to it, because `TODO:` and dashes are stripped fr
 | `train_recent_only.jsonl` | Original 310 rows, #general only |
 | `train_task_model.py` | Trains, saves to `model\`, prints mistakes and score |
 | `check_message.py` | Tries the model on one message |
+| `requirements.txt` | Pinned packages, including the GPU build of PyTorch |
 | `README.md` | Setup, training and improvement guide |
 
 These files contain real team messages. The folder is the private repo `theruvial/AstraThought` (branch `main`), which must stay private. `.venv`, `model` and `checkpoints` are not in git, so regenerate them by following `README.md`.
