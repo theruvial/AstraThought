@@ -182,6 +182,16 @@ many task and non-task rows fall below 0.25, between 0.25 and
 set them in `classifier_service.py`, and leave them alone. Do
 not tune them against test.jsonl after that.
 
+## Review floor
+
+A piece scoring under 10% (`REVIEW_FLOOR` in `classifier_service.py`)
+is dropped instead of going to review, because ordinary chat like
+"sounds good to me" scores about 1%. Two exceptions still go through
+the normal rules: explicit `TODO:` or `.open` / `.assign` markers, and
+problem words such as "broken", because "salvage is broken" is a real
+task that scores the same as chat. The Decisions panel shows these
+with the trigger `below_review_floor`.
+
 ## How it fits with the bot
 
 Astrabot `cogs/tasks.py` watches mcdungeons #astra-feedback, sends
