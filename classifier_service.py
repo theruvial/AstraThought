@@ -16,7 +16,14 @@ Endpoints (all JSON, loopback only, no auth):
     POST /classify
         {"text": "salvage is broken"}
         -> {"ok": true, "pieces": [{"text": ..., "score": 0.12,
-        "decision": "auto_drop", "trigger": "none"}]}
+        "decision": "auto_drop", "trigger": "none",
+        "reason": "score 0.12 is at or below 0.25"}]}
+
+    Every classification is also written to the console (stdout via
+    logging): the message as received, how it split, and for each
+    piece its score, decision, trigger, and a plain-words reason.
+    That is the classifier's thought process, visible in the console
+    pane while the bot runs. Nothing is logged for /health checks.
     POST /classify_batch
         {"texts": ["...", "..."]}
         -> {"ok": true, "results": [{"text": ..., "pieces": [...]}, ...]}
@@ -155,33 +162,57 @@ def is_short_observation(piece: str) -> bool:
     return not _has_imperative(piece)
 
 
+def _one_line(text: str, limit: int = 160) -> str:
+    """Collapse a message to one log line, truncated."""
+    return re.sub(r"\s+", " ", text or "").strip()[:limit]
+
+
 def decide_piece(piece: str, score: float, raw_text: str = "",
                  split_disagrees: bool = False) -> dict:
-    """Decide one split piece from its model score and the triggers."""
+    """Decide one split piece from its model score and the triggers.
+
+    The returned dict also carries "reason": one plain-words line
+    saying why this decision was made. The reason is what the
+    console log shows, so a human watching the service can follow
+    the classifier's thought process piece by piece.
+    """
     model_says_task = score >= 0.5
     rule_task = rule_says_task(piece, raw_text)
     lowered = piece.lower()
 
     if rule_task != model_says_task:
         return {"text": piece, "score": round(score, 4),
-                "decision": "review", "trigger": "model_regex_disagreement"}
-    if model_says_task and any(m in lowered for m in SUGGESTION_MARKERS):
+                "decision": "review", "trigger": "model_regex_disagreement",
+                "reason": (f"model says {'task' if model_says_task else 'not a task'} "
+                           f"(score {score:.2f}) but the rule says "
+                           f"{'task' if rule_task else 'not a task'}")}
+    marker = next((m for m in SUGGESTION_MARKERS if m in lowered), None)
+    if model_says_task and marker is not None:
         return {"text": piece, "score": round(score, 4),
-                "decision": "review", "trigger": "suggestion_marker"}
+                "decision": "review", "trigger": "suggestion_marker",
+                "reason": f"model says task but the text says '{marker}'"}
     if is_short_observation(piece):
+        words = len(piece.split())
         return {"text": piece, "score": round(score, 4),
-                "decision": "review", "trigger": "short_observation"}
+                "decision": "review", "trigger": "short_observation",
+                "reason": (f"{words} word{'s' if words != 1 else ''}, "
+                           "no imperative verb, same shape as ruled both ways")}
     if split_disagrees and LOW < score < HIGH:
         return {"text": piece, "score": round(score, 4),
-                "decision": "review", "trigger": "split_disagreement"}
+                "decision": "review", "trigger": "split_disagreement",
+                "reason": ("other pieces in this message were auto-decided, "
+                           f"this one is in the band ({LOW}-{HIGH})")}
     if score >= HIGH:
         return {"text": piece, "score": round(score, 4),
-                "decision": "auto_task", "trigger": "none"}
+                "decision": "auto_task", "trigger": "none",
+                "reason": f"score {score:.2f} is at or above {HIGH}"}
     if score <= LOW:
         return {"text": piece, "score": round(score, 4),
-                "decision": "auto_drop", "trigger": "none"}
+                "decision": "auto_drop", "trigger": "none",
+                "reason": f"score {score:.2f} is at or below {LOW}"}
     return {"text": piece, "score": round(score, 4),
-            "decision": "review", "trigger": "score_band"}
+            "decision": "review", "trigger": "score_band",
+            "reason": f"score {score:.2f} is between {LOW} and {HIGH}"}
 
 
 def overrides_path() -> Path:
@@ -248,6 +279,8 @@ class Classifier:
         """Split one message, check overrides, classify each piece."""
         pieces = split_message(text or "")
         if not pieces:
+            log.info("classify: %r -> 0 pieces, dropped",
+                     _one_line(text, 200))
             return {"ok": True, "pieces": []}
         overrides = load_overrides()
         results = []
@@ -262,6 +295,8 @@ class Classifier:
                     "score": 1.0 if label == 1 else 0.0,
                     "decision": "auto_task" if label == 1 else "auto_drop",
                     "trigger": "human_override",
+                    "reason": (f"a human ruled this a {'task' if label == 1 else 'not a task'} "
+                               "in task_overrides.json, model skipped"),
                 })
             else:
                 to_score.append(piece)
@@ -289,7 +324,26 @@ class Classifier:
         for piece in pieces:
             hit = next((r for r in results if r["text"] == piece), None)
             ordered.append(hit if hit is not None else final[piece])
+        self._log_thought_process(text, pieces, ordered)
         return {"ok": True, "pieces": ordered}
+
+    @staticmethod
+    def _log_thought_process(text: str, pieces: list, ordered: list) -> None:
+        """Write the classifier's thought process to the console.
+
+        One block per message: what came in, how it split, and for
+        each piece the score, the decision, the trigger, and the
+        plain-words reason. This is what the console pane shows while
+        the bot is running, so a human can see why each message was
+        posted, dropped, or sent to review.
+        """
+        log.info("classify: %r -> %d piece(s)",
+                 _one_line(text, 200), len(pieces))
+        for result in ordered:
+            log.info("  [%s %.2f %s] %s -- %s",
+                     result["decision"], result["score"], result["trigger"],
+                     _one_line(result["text"], 120),
+                     result.get("reason", ""))
 
 
 CLASSIFIER = Classifier(DEFAULT_MODEL_DIR)
@@ -385,8 +439,10 @@ def main() -> None:
                     "model_loaded false and /classify will return 503.",
                     args.model_dir)
     server = ThreadingHTTPServer((args.host, args.port), _Handler)
-    log.info("Classifier service listening on %s:%s, model %s, loaded=%s",
-             args.host, args.port, args.model_dir, CLASSIFIER.loaded)
+    log.info("Classifier service listening on %s:%s, model %s, loaded=%s, "
+             "auto_task >= %s, auto_drop <= %s, between them goes to review",
+             args.host, args.port, args.model_dir, CLASSIFIER.loaded,
+             HIGH, LOW)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

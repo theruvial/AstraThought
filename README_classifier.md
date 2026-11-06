@@ -98,6 +98,25 @@ Decisions: `auto_task` (score at or above HIGH), `auto_drop`
 trigger fires). HIGH 0.75 and LOW 0.25 are placeholders. Set
 them from `score_distribution.py` output before going live.
 
+## What you see in the console
+
+Every message the bot sends for classification is logged in the
+console pane, so you can watch the classifier think. One block
+per message: what came in, how it split, and for each piece its
+score, decision, trigger, and a plain-words reason. The same
+reason is also in the `reason` field of each piece in the
+`/classify` response. Nothing is logged for `/health` checks.
+
+```text
+classify: 'Fix the lighting layers. Fix the flocking in the north sector' -> 2 piece(s)
+  [auto_task 0.90 none] Fix the lighting layers -- score 0.90 is at or above 0.75
+  [review 0.50 split_disagreement] Fix the flocking in the north sector -- other pieces in this message were auto-decided, this one is in the band (0.25-0.75)
+classify: 'salvage is broken' -> 1 piece(s)
+  [review 0.40 short_observation] salvage is broken -- 3 words, no imperative verb, same shape as ruled both ways
+classify: 'Fix the guns, we should make them stronger' -> 1 piece(s)
+  [review 0.80 suggestion_marker] Fix the guns, we should make them stronger -- model says task but the text says 'we should'
+```
+
 Review triggers: `score_band`, `model_regex_disagreement`,
 `suggestion_marker`, `short_observation`, `split_disagreement`,
 and `human_override` (a hit in the overrides file, which skips
