@@ -79,6 +79,15 @@ Review triggers, in addition to the score band:
         auto and some in the review band. The band piece goes to
         review with this trigger instead of "score_band".
 
+Review floor:
+    A piece scoring under REVIEW_FLOOR (0.10) is dropped, not sent to
+    review, even if a trigger above would fire. Ordinary chat like
+    "sounds good to me" scores about 0.01 and would otherwise fill the
+    review channel. Two exceptions still get through: an explicit
+    TODO: or .open / .assign marker, and problem words such as
+    "broken", because "salvage is broken" is a real task that scores
+    the same as chat.
+
 Human overrides:
     Before the model runs, each piece is checked against an overrides
     file (env TASK_OVERRIDES_PATH, default data/task_overrides.json
@@ -129,6 +138,8 @@ HERE = Path(__file__).resolve().parent
 # Placeholder thresholds. Set from score_distribution.py output.
 HIGH = 0.75
 LOW = 0.25
+# Under this, a piece is chat, not something worth a human's time.
+REVIEW_FLOOR = 0.10
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 13383
@@ -146,6 +157,11 @@ SUGGESTION_MARKERS = (
 
 _RULE_TODO_RE = re.compile(r"^\s*(TODO|FIXME|XXX)\s*:", re.IGNORECASE)
 _RULE_COMMAND_RE = re.compile(r"^\s*\.(open|assign)\b", re.IGNORECASE)
+_PROBLEM_RE = re.compile(
+    r"\b(broken|broke|bugged|bug|crash(es|ing)?|missing|stuck|glitch(es|ing|y)?|"
+    r"not working|doesn'?t work|isn'?t working)\b",
+    re.IGNORECASE,
+)
 
 
 def normalize_text(text: str) -> str:
@@ -184,6 +200,15 @@ def is_short_observation(piece: str) -> bool:
     return not _has_imperative(piece)
 
 
+def below_review_floor(piece: str, score: float, raw_text: str = "") -> bool:
+    """True when a piece is too unlikely to be worth a human's review."""
+    if score >= REVIEW_FLOOR:
+        return False
+    if _RULE_TODO_RE.search(raw_text or piece) or _RULE_COMMAND_RE.search(piece):
+        return False
+    return _PROBLEM_RE.search(piece) is None
+
+
 def _one_line(text: str, limit: int = 160) -> str:
     """Collapse a message to one log line, truncated."""
     return re.sub(r"\s+", " ", text or "").strip()[:limit]
@@ -198,6 +223,10 @@ def decide_piece(piece: str, score: float, raw_text: str = "",
     console log shows, so a human watching the service can follow
     the classifier's thought process piece by piece.
     """
+    if below_review_floor(piece, score, raw_text):
+        return {"text": piece, "score": round(score, 4),
+                "decision": "auto_drop", "trigger": "below_review_floor",
+                "reason": f"score {score:.2f} is under the review floor of {REVIEW_FLOOR}"}
     model_says_task = score >= 0.5
     rule_task = rule_says_task(piece, raw_text)
     lowered = piece.lower()
