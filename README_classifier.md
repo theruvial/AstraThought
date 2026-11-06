@@ -109,13 +109,51 @@ reason is also in the `reason` field of each piece in the
 
 ```text
 classify: 'Fix the lighting layers. Fix the flocking in the north sector' -> 2 piece(s)
-  [auto_task 0.90 none] Fix the lighting layers -- score 0.90 is at or above 0.75
-  [review 0.50 split_disagreement] Fix the flocking in the north sector -- other pieces in this message were auto-decided, this one is in the band (0.25-0.75)
+  #1 [auto_task 0.90 none] Fix the lighting layers -- says task
+    reason: score 0.90 is at or above 0.75
+  #2 [review 0.50 split_disagreement] Fix the flocking in the north sector -- leans task
+    reason: other pieces in this message were auto-decided, this one is in the band (0.25-0.75)
 classify: 'salvage is broken' -> 1 piece(s)
-  [review 0.40 short_observation] salvage is broken -- 3 words, no imperative verb, same shape as ruled both ways
+  #3 [review 0.40 short_observation] salvage is broken -- leans not a task
+    reason: 3 words, no imperative verb, same shape as ruled both ways
 classify: 'Fix the guns, we should make them stronger' -> 1 piece(s)
-  [review 0.80 suggestion_marker] Fix the guns, we should make them stronger -- model says task but the text says 'we should'
+  #4 [review 0.80 suggestion_marker] Fix the guns, we should make them stronger -- leans task
+    reason: model says task but the text says 'we should'
 ```
+
+## Ruling on decisions from the console
+
+Each logged piece has an id number. Type in the console window
+while the service is running:
+
+```text
+2 agree
+3 disagree
+list
+```
+
+- `<id> agree` means the bot was right about that decision.
+  `<id> disagree` means it was wrong. `a` and `d` work too, and
+  `agree 2` works as well as `2 agree`.
+- Agree/disagree answers "is this a task?". For a review decision
+  it answers the lean shown after the `--`: score at or above 0.5
+  leans task, below leans not a task.
+- Typing just an id (e.g. `2`) shows that decision and what
+  agree/disagree would record. `list` shows the last 10 decisions.
+  Only the most recent 200 are kept; older ids answer "unknown".
+- Every ruling is appended to the labels file as a training label
+  (same JSONL shape as the cog's labels, reviewer `console`) and
+  updates the overrides file, so the same text is decided by your
+  ruling from then on, without restarting the service or retraining.
+
+The labels and overrides files are shared with the cog: set
+`TASKS_LABELS_PATH` and `TASK_OVERRIDES_PATH` once on the host
+(`setx`, machine-wide) and both the service and the bot write the
+same files, which is what `/task_stats` counts and what the
+50-label retrain trigger reads. With neither set, the service
+writes `data/task_labels.jsonl` and `data/task_overrides.json`
+next to itself, in the AstraThought checkout, which the cog does
+not read.
 
 Review triggers: `score_band`, `model_regex_disagreement`,
 `suggestion_marker`, `short_observation`, `split_disagreement`,
