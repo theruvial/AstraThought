@@ -183,6 +183,27 @@ still go to review through `short_observation` (10 of those 11 were
 real tasks). A short observation in #astra-feedback is therefore
 worth a second look as a separate change.
 
+### Current model (2026-11-09)
+
+Trained by `train_task_model.py` on `train.jsonl` (1,911 real rows) plus
+`synthetic/synthetic_all.jsonl` (1,000 invented rows written by Muse),
+same settings as before (1 epoch, 20 iterations, seed 42). Nothing from
+`test.jsonl` or `eval_feedback.jsonl` is in the training data.
+
+| Training data | #astra-feedback (60 real) | other-channel test (86) |
+|---|---|---|
+| real only | 44 of 50 found, 4 false alarms | 26 of 29, 8 false alarms |
+| invented only | 43 of 50, 1 false alarm | 22 of 29, 18 false alarms |
+| **real + invented (current)** | **46 of 50, 1 false alarm** | 24 of 29, 7 false alarms |
+
+Through the full pipeline on #astra-feedback: 35 auto-posted (1 wrong),
+16 to review, 1 real task lost silently. Five-fold cross-validation
+that also trained on the real #astra-feedback rows gave the same 46/50,
+so those rows were left out and the set stays clean. The four missed
+tasks are all short requirement statements the model scores near zero
+("Not every node needs a planet"); the statement net routes them to
+review. With 60 rows, one piece moves the percentages by about 2 points.
+
 ### The statement net, and long pieces under the floor
 
 A piece under the review floor (0.10) is normally dropped. Three

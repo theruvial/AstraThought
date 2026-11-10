@@ -14,6 +14,9 @@ from setfit import SetFitModel, Trainer, TrainingArguments
 HERE = Path(__file__).resolve().parent
 BASE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 MODEL_DIR = HERE / "tasks-AstraThought-v2"
+# Real chat plus Muse's invented rows. Never add test.jsonl or
+# eval_feedback.jsonl here: they are the held-out scoreboards.
+TRAIN_FILES = ["train.jsonl", "synthetic/synthetic_all.jsonl"]
 
 
 def load(name):
@@ -22,7 +25,8 @@ def load(name):
 
 
 def main():
-    train_rows, test_rows = load("train.jsonl"), load("test.jsonl")
+    train_rows = [row for name in TRAIN_FILES for row in load(name)]
+    test_rows = load("test.jsonl")
     tasks = sum(row["label"] for row in train_rows)
     print(f"Training on {len(train_rows)} items: {tasks} tasks, {len(train_rows) - tasks} not tasks")
 
