@@ -207,7 +207,8 @@ def _has_imperative(text: str) -> bool:
 
 
 def rule_says_task(piece: str, raw_text: str = "") -> bool:
-    """Cheap rule: TODO:, .open/.assign, or an imperative start.
+    """Cheap rule: TODO:, .open/.assign, an imperative start, or a
+    requirement statement ("Modules should have 2 to 3 hp").
 
     This is a disagreement detector, not a task detector on its own.
     The splitter strips TODO: from pieces, so check the raw text too.
@@ -216,11 +217,19 @@ def rule_says_task(piece: str, raw_text: str = "") -> bool:
         return True
     if _RULE_COMMAND_RE.search(piece):
         return True
+    if is_requirement_statement(piece):
+        return True
     return _first_word(piece) in IMPERATIVES
 
 
 def is_short_observation(piece: str) -> bool:
-    """Under 8 words, no imperative verb anywhere in the piece."""
+    """Under 8 words, no imperative verb anywhere in the piece.
+
+    A requirement statement ("Modules should have 2 to 3 hp") is not an
+    observation, even though it has no imperative verb.
+    """
+    if is_requirement_statement(piece):
+        return False
     words = piece.split()
     if len(words) >= 8 or len(words) == 0:
         return False
@@ -277,7 +286,9 @@ def decide_piece(piece: str, score: float, raw_text: str = "",
     lowered = piece.lower()
 
     outvoted = model_says_task and not rule_task and score >= DISAGREEMENT_SKIP_SCORE
-    if rule_task != model_says_task and not outvoted:
+    # a statement under the floor gets its own trigger (statement_net) below
+    net_case = score < REVIEW_FLOOR and is_requirement_statement(piece)
+    if rule_task != model_says_task and not outvoted and not net_case:
         return {"text": piece, "score": round(score, 4),
                 "decision": "review", "trigger": "model_regex_disagreement",
                 "reason": (f"model says {'task' if model_says_task else 'not a task'} "

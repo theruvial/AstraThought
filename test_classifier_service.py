@@ -80,6 +80,20 @@ class StatementNetTests(unittest.TestCase):
         self.assertFalse(service.is_requirement_statement("the door closed fast"))
 
 
+class RequirementStatementAgreementTests(unittest.TestCase):
+    def test_a_confident_requirement_statement_is_auto_posted(self):
+        result = decide("Modules should have 2 to 3 hp", 0.76)
+        self.assertEqual(result["decision"], "auto_task")
+
+    def test_the_rule_counts_a_requirement_statement_as_a_task(self):
+        self.assertTrue(service.rule_says_task("Doors should close slower after a warp"))
+        self.assertFalse(service.rule_says_task("we should maybe look at fog sometime"))
+
+    def test_a_first_person_suggestion_still_goes_to_review(self):
+        result = decide("we should maybe add more hp to modules", 0.9)
+        self.assertEqual(result["decision"], "review")
+
+
 class UnchangedRulesTests(unittest.TestCase):
     def test_confident_tasks_still_auto_post(self):
         self.assertEqual(decide("add npcs to the crew UI", 0.95)["decision"], "auto_task")
