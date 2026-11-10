@@ -16,6 +16,8 @@ Rules, in order:
      (i.e., e.g., etc., alt., def.), decimals (0.5), and ellipses are
      explicitly not split.
   5. Split on semicolons.
+  5b. A one-line numbered list ("1. add a ping 2. fix the freeze") is
+     split on the inline numbers.
   6. Split on ", " followed by an imperative verb, but ONLY when the
      piece before the comma also starts with (or contains) an imperative
      verb. This is the conservative comma rule: it catches
@@ -30,10 +32,19 @@ Rules, in order:
      or a single short word that is not a verb phrase (kept simple: drop
      pieces under 3 characters).
 
+  6b. Split "<imperative> ... and/also/then <imperative> <determiner>"
+     ("fix the freeze and add a ping"). The determiner or digit after
+     the second verb is the guard against cutting one task in half.
+  6c. Split two requirement statements joined by a comma or "and"
+     ("doors should close slower, shields should recharge slower"),
+     but only when both halves contain should/must/needs to and the
+     second subject is not a pronoun.
+
 Known limits, documented not hidden:
-  - "and" joining two tasks ("Build X and move to Y") is NOT split,
-    except when it follows a comma (step 6). Splitting on bare "and"
-    breaks single tasks like "add npcs to the crew UI and fix the map".
+  - A second task that starts with a verb and no determiner ("fix X and
+    rework Y") is not split, and neither is a run-on with no
+    punctuation ("doors should close slower shields should recharge").
+    A wrong split cuts a good task into nonsense, so these stay whole.
   - Gerund joins ("getting the bridge functional, getting the squire
     functional") are NOT split. They need a human or a better parser.
   - Abbreviations ("e.g.", "IE", version numbers) can cause a false
@@ -156,6 +167,60 @@ def _split_on_comma_imperative(piece):
     return [p.strip() for p in parts if p.strip()]
 
 
+_DETERMINERS = (
+    "a", "an", "the", "this", "that", "these", "those", "all", "some",
+    "more", "less", "new", "each", "every", "your", "my", "our", "their",
+    "its", "any", "no", "one", "two", "three", "another", "extra",
+)
+# "and also", "and then", "also", "then", or a bare "and", followed by an
+# imperative verb AND a determiner or digit. The determiner is the guard:
+# "add npcs and items" and "set X and use Y" stay whole, "fix the freeze
+# and add a ping" splits.
+_CONNECTOR_SPLIT_RE = re.compile(
+    r"\s+(?:and\s+also|and\s+then|also|then|and)\s+(?=(?:"
+    + "|".join(sorted(IMPERATIVES))
+    + r")\s+(?:" + "|".join(_DETERMINERS) + r"|\d)\b)",
+    re.IGNORECASE,
+)
+_STATEMENT_WORD_RE = re.compile(r"\b(should|shouldn'?t|must|needs?\s+to)\b", re.IGNORECASE)
+# ", <subject> should ..." or " and <subject> should ...". The subject is
+# 1 to 6 words and may not be a pronoun, because "doors close slower and
+# they should be louder" is one thought about the same doors.
+_STATEMENT_JOIN_RE = re.compile(
+    r"(?:,\s+(?:and\s+)?|\s+and\s+)(?=(?!(?:they|it|we|he|she|you|this|that|these|those|i)\b)"
+    r"[A-Za-z0-9'-]+(?:\s+[A-Za-z0-9'-]+){0,5}?\s+(?:should|shouldn'?t|must|needs?\s+to)\b)",
+    re.IGNORECASE,
+)
+_INLINE_NUMBER_RE = re.compile(r"\s+(?=\d+[.)]\s+[A-Za-z])")
+
+
+def _split_on_connectors(piece):
+    """Split 'fix X and add Y', 'fix X also add Y' and 'fix X then add Y'."""
+    first_word = re.match(r"([A-Za-z]+)", piece.strip())
+    parts = [piece]
+    if first_word and first_word.group(1).lower() in IMPERATIVES:
+        parts = _CONNECTOR_SPLIT_RE.split(piece)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _split_statement_pairs(piece):
+    """Split 'doors should X, shields should Y' into two statements."""
+    if not _STATEMENT_WORD_RE.search(piece):
+        return [piece]
+    parts = _STATEMENT_JOIN_RE.split(piece)
+    # each side must itself be a statement, or the cut is wrong
+    if len(parts) > 1 and all(_STATEMENT_WORD_RE.search(p) for p in parts):
+        return [p.strip() for p in parts if p.strip()]
+    return [piece]
+
+
+def _split_inline_numbers(line):
+    """'1. add a ping 2. fix the freeze' on one line -> separate items."""
+    if re.match(r"^\s*1[.)]\s+", line):
+        return [p for p in _INLINE_NUMBER_RE.split(line) if p.strip()]
+    return [line]
+
+
 def split_message(text):
     """Return a list of candidate task units from one raw message."""
     if not text or not text.strip():
@@ -171,9 +236,12 @@ def split_message(text):
             continue
         # A line may contain several list items if pasted without newlines;
         # that case is rare in the data and is left alone.
-        for sent in _split_sentences(line):
-            for semi in sent.split(";"):
-                units.extend(_split_on_comma_imperative(semi))
+        for item in _split_inline_numbers(line):
+            for sent in _split_sentences(item):
+                for semi in sent.split(";"):
+                    for comma in _split_on_comma_imperative(semi):
+                        for conn in _split_on_connectors(comma):
+                            units.extend(_split_statement_pairs(conn))
     cleaned = []
     seen = set()
     for unit in units:
