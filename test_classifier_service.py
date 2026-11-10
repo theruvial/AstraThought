@@ -94,12 +94,34 @@ class RequirementStatementAgreementTests(unittest.TestCase):
         self.assertEqual(result["decision"], "review")
 
 
+class BugReportTests(unittest.TestCase):
+    def test_short_bug_reports_are_auto_posted_when_the_model_is_sure(self):
+        for text in ("Bug in ship sway", "found bug in x feature",
+                     "found a bug in the lobby menu", "Noticed the shield bar is missing",
+                     "there's a glitch in the warp screen"):
+            self.assertEqual(decide(text, 0.97)["decision"], "auto_task", text)
+
+    def test_the_bug_check_itself(self):
+        self.assertTrue(service.is_bug_report("Bug in ship sway"))
+        self.assertTrue(service.is_bug_report("found bug in x feature"))
+        self.assertTrue(service.is_bug_report("I found a bug in the map"))
+        self.assertFalse(service.is_bug_report("is this a bug?"))
+        self.assertFalse(service.is_bug_report("I'm stuck on level three"))
+        self.assertFalse(service.is_bug_report("we should fix the bug someday"))
+        self.assertFalse(service.is_bug_report("that boss was brutal"))
+        self.assertFalse(service.is_bug_report("bug"))
+
+    def test_a_bug_report_the_model_doubts_still_goes_to_review(self):
+        result = decide("Bug in ship sway", 0.4)
+        self.assertEqual(result["decision"], "review")
+
+
 class UnchangedRulesTests(unittest.TestCase):
     def test_confident_tasks_still_auto_post(self):
         self.assertEqual(decide("add npcs to the crew UI", 0.95)["decision"], "auto_task")
 
     def test_model_and_rule_disagreement_still_reviews_below_95(self):
-        text = "the cargo bay door seems to be stuck half open most of the time"
+        text = "the cargo bay door looks too narrow next to the other doors on deck"
         result = decide(text, 0.90)
         self.assertEqual(result["decision"], "review")
         self.assertEqual(result["trigger"], "model_regex_disagreement")
