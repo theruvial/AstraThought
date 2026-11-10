@@ -66,7 +66,13 @@ Review triggers, in addition to the score band:
         ".open" / ".assign") says task and the model says not, or the
         reverse. The handoff regex scored 92% precision / 68% recall
         with different errors from the model, so disagreement is a
-        good reason to ask a human.
+        good reason to ask a human. One exception: when the model
+        says task at DISAGREEMENT_SKIP_SCORE (0.95) or higher and the
+        rule says not, the rule is outvoted. The rule misses about a
+        third of real tasks, because feedback is often phrased as an
+        observation ("the jump gate is visible after the warp"). In
+        Thea's 37 rulings on these in #astra-feedback, 36 were tasks.
+        The other triggers below still apply to such a piece.
     suggestion_marker  the model flags the piece as a task, but it
         contains suggestion wording ("we should", "I think",
         "maybe we need", "we need to"). These were 3 of the 8 false
@@ -140,6 +146,8 @@ HIGH = 0.75
 LOW = 0.25
 # Under this, a piece is chat, not something worth a human's time.
 REVIEW_FLOOR = 0.10
+# At or above this, a model "task" outvotes the rule saying "not a task".
+DISAGREEMENT_SKIP_SCORE = 0.95
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 13383
@@ -231,7 +239,8 @@ def decide_piece(piece: str, score: float, raw_text: str = "",
     rule_task = rule_says_task(piece, raw_text)
     lowered = piece.lower()
 
-    if rule_task != model_says_task:
+    outvoted = model_says_task and not rule_task and score >= DISAGREEMENT_SKIP_SCORE
+    if rule_task != model_says_task and not outvoted:
         return {"text": piece, "score": round(score, 4),
                 "decision": "review", "trigger": "model_regex_disagreement",
                 "reason": (f"model says {'task' if model_says_task else 'not a task'} "

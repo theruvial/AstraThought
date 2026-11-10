@@ -165,6 +165,24 @@ Review triggers: `score_band`, `model_regex_disagreement`,
 and `human_override` (a hit in the overrides file, which skips
 the model and returns score 1.0 for label 1 or 0.0 for label 0).
 
+### Confident model outvotes the rule
+
+`model_regex_disagreement` normally sends a piece to review when the
+model and the cheap rule disagree. The rule only counts `TODO:`,
+`.open`, `.assign` and an imperative first word, so it misses
+feedback phrased as an observation ("the jump gate is visible after
+the warp flash"). When the model says task at 95% or higher
+(`DISAGREEMENT_SKIP_SCORE`) and the rule says not, the rule is
+outvoted and the piece goes on to the remaining checks. The reverse
+case (the rule says task, the model says not) still goes to review.
+
+Evidence: Thea's 37 rulings on these disagreements in
+#astra-feedback were 36 tasks and 1 not a task. Replaying them
+through the new rule, 26 become `auto_task` (all real tasks) and 11
+still go to review through `short_observation` (10 of those 11 were
+real tasks). A short observation in #astra-feedback is therefore
+worth a second look as a separate change.
+
 ## Setting the band
 
 Run once, in the AstraThought venv, before going live:

@@ -41,10 +41,41 @@ class UnchangedRulesTests(unittest.TestCase):
     def test_confident_tasks_still_auto_post(self):
         self.assertEqual(decide("add npcs to the crew UI", 0.95)["decision"], "auto_task")
 
-    def test_model_and_rule_disagreement_still_reviews(self):
-        result = decide("the cargo bay door seems odd today", 0.99)
+    def test_model_and_rule_disagreement_still_reviews_below_95(self):
+        text = "the cargo bay door seems to be stuck half open most of the time"
+        result = decide(text, 0.90)
         self.assertEqual(result["decision"], "review")
         self.assertEqual(result["trigger"], "model_regex_disagreement")
+
+    def test_rule_saying_task_against_a_low_model_score_still_reviews(self):
+        result = decide("add a thing", 0.30)
+        self.assertEqual(result["decision"], "review")
+        self.assertEqual(result["trigger"], "model_regex_disagreement")
+
+
+class HighScoreOutvotesRuleTests(unittest.TestCase):
+    OBSERVATION = "the jump gate is still visible on the second node after the warp flash"
+
+    def test_confident_model_outvotes_a_rule_that_says_not_a_task(self):
+        result = decide(self.OBSERVATION, 0.97)
+        self.assertEqual(result["decision"], "auto_task")
+        self.assertEqual(result["trigger"], "none")
+
+    def test_the_cutoff_is_inclusive(self):
+        self.assertEqual(decide(self.OBSERVATION, service.DISAGREEMENT_SKIP_SCORE)["decision"], "auto_task")
+        just_under = service.DISAGREEMENT_SKIP_SCORE - 0.001
+        self.assertEqual(decide(self.OBSERVATION, just_under)["trigger"], "model_regex_disagreement")
+
+    def test_other_triggers_still_apply_to_an_outvoted_piece(self):
+        # Short and observational: still goes to review, for its own reason.
+        self.assertEqual(decide("the cargo bay door seems off today", 0.99)["trigger"], "short_observation")
+        # A suggestion phrase: still goes to review.
+        text = "we should make the jump gate a little more visible in the ship view"
+        self.assertEqual(decide(text, 0.99)["trigger"], "suggestion_marker")
+
+    def test_a_human_marker_is_unaffected(self):
+        # The rule says task, so there is nothing to outvote.
+        self.assertEqual(decide("fix the map", 0.99, "TODO: fix the map")["decision"], "auto_task")
 
     def test_short_observations_over_the_floor_still_review(self):
         self.assertEqual(decide("asteroid field looks odd", 0.3)["trigger"], "short_observation")
