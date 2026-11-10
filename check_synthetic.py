@@ -36,6 +36,7 @@ guesses, and a model trained on guesses learns the guesser's mistakes.
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import random
 import re
@@ -276,7 +277,12 @@ def main(argv=None) -> int:
         return score(Path(args.score), args.not_tasks)
     if not args.files:
         parser.error("give at least one batch file, or --score")
-    return clean(args.files, Path.cwd())
+    # PowerShell and cmd do not expand wildcards, so do it here
+    files = []
+    for item in args.files:
+        matches = sorted(glob.glob(item))
+        files.extend(matches if matches else [item])
+    return clean(files, Path.cwd())
 
 
 if __name__ == "__main__":
