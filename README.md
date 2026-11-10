@@ -13,6 +13,8 @@ The Astrabot tasks cog sends it each human message from #astra-feedback. Tasks g
 | `test.jsonl` | Newer items kept out of training, used to score it |
 | `eval_feedback.jsonl` | Every piece posted in #astra-feedback up to 2026-11-09, labeled by Thea. The real-channel test set. Never train on it |
 | `eval_feedback.py` | Scores the model and the whole pipeline on `eval_feedback.jsonl` (inference only, prints, writes nothing) |
+| `synthetic_data_prompt.md` | Prompt for generating synthetic training data with ChatGPT, in batches, to fix the short-statement blind spot |
+| `check_synthetic.py` | Cleans what ChatGPT returns: drops bad lines, repeats and anything matching the real data, and makes a spot-check sample (trains nothing) |
 | `train_task_model.py` | Trains the model, saves it to `tasks-AstraThought-v2\`, prints its score |
 | `check_message.py` | Tries the trained model on one message |
 | `classifier_service.py` | The HTTP service the bot calls, on `127.0.0.1:13383` |
