@@ -89,10 +89,20 @@ Review floor:
     A piece scoring under REVIEW_FLOOR (0.10) is dropped, not sent to
     review, even if a trigger above would fire. Ordinary chat like
     "sounds good to me" scores about 0.01 and would otherwise fill the
-    review channel. Two exceptions still get through: an explicit
-    TODO: or .open / .assign marker, and problem words such as
-    "broken", because "salvage is broken" is a real task that scores
-    the same as chat.
+    review channel. Three exceptions still get through, and each ends
+    in review (a long piece used to slip past the floor and then be
+    dropped by the LOW cutoff further down, which is fixed):
+      - an explicit TODO: or .open / .assign marker
+      - problem words such as "broken", because "salvage is broken" is
+        a real task that scores the same as chat
+      - a requirement statement (the "statement net"): 4 or more words
+        with a word like should, needs, must, every or each, that does
+        not start in the first person and is not a question. The model
+        scores short statements such as "Every room should have a main
+        module" at about 0.007, exactly like chat, so no cutoff can
+        separate them. On the 60 real #astra-feedback pieces, 7 of 50
+        tasks were of this kind. The net sends them to a person instead
+        of dropping them silently.
 
 Human overrides:
     Before the model runs, each piece is checked against an overrides
@@ -165,6 +175,15 @@ SUGGESTION_MARKERS = (
 
 _RULE_TODO_RE = re.compile(r"^\s*(TODO|FIXME|XXX)\s*:", re.IGNORECASE)
 _RULE_COMMAND_RE = re.compile(r"^\s*\.(open|assign)\b", re.IGNORECASE)
+_STATEMENT_RE = re.compile(
+    r"\b(should|shouldn'?t|needs?|must|has to|have to|every|each|not every)\b",
+    re.IGNORECASE,
+)
+_FIRST_PERSON_RE = re.compile(
+    r"^\s*(we|i|i'm|im|i'll|ill|i've|ive|should we|maybe|idk|gonna)\b",
+    re.IGNORECASE,
+)
+STATEMENT_MIN_WORDS = 4
 _PROBLEM_RE = re.compile(
     r"\b(broken|broke|bugged|bug|crash(es|ing)?|missing|stuck|glitch(es|ing|y)?|"
     r"not working|doesn'?t work|isn'?t working)\b",
@@ -208,11 +227,29 @@ def is_short_observation(piece: str) -> bool:
     return not _has_imperative(piece)
 
 
+def is_requirement_statement(piece: str) -> bool:
+    """A short impersonal statement of how the game should be.
+
+    "Doors should close slower", "Not every sector needs a shop". Not a
+    question, not a first-person suggestion ("we should maybe...") and at
+    least STATEMENT_MIN_WORDS words, so chat like "every day lol" does
+    not count.
+    """
+    text = piece.strip()
+    if len(text.split()) < STATEMENT_MIN_WORDS or text.endswith("?"):
+        return False
+    if _FIRST_PERSON_RE.match(text):
+        return False
+    return _STATEMENT_RE.search(text) is not None
+
+
 def below_review_floor(piece: str, score: float, raw_text: str = "") -> bool:
     """True when a piece is too unlikely to be worth a human's review."""
     if score >= REVIEW_FLOOR:
         return False
     if _RULE_TODO_RE.search(raw_text or piece) or _RULE_COMMAND_RE.search(piece):
+        return False
+    if is_requirement_statement(piece):
         return False
     return _PROBLEM_RE.search(piece) is None
 
@@ -257,6 +294,18 @@ def decide_piece(piece: str, score: float, raw_text: str = "",
                 "decision": "review", "trigger": "short_observation",
                 "reason": (f"{words} word{'s' if words != 1 else ''}, "
                            "no imperative verb, same shape as ruled both ways")}
+    if score < REVIEW_FLOOR:
+        # Only a floor exception gets here (the rest were dropped above),
+        # and a person should look, not the LOW cutoff below.
+        if is_requirement_statement(piece):
+            return {"text": piece, "score": round(score, 4),
+                    "decision": "review", "trigger": "statement_net",
+                    "reason": ("reads like a requirement statement, but the model "
+                               f"scores it like chat ({score:.2f})")}
+        return {"text": piece, "score": round(score, 4),
+                "decision": "review", "trigger": "floor_exception",
+                "reason": ("an explicit marker or a problem word, but the model "
+                           f"scores it like chat ({score:.2f})")}
     if split_disagrees and LOW < score < HIGH:
         return {"text": piece, "score": round(score, 4),
                 "decision": "review", "trigger": "split_disagreement",

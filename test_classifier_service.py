@@ -37,6 +37,49 @@ class ReviewFloorTests(unittest.TestCase):
         self.assertTrue(service.below_review_floor("nice debugging session", 0.01))
 
 
+class StatementNetTests(unittest.TestCase):
+    def test_short_requirement_statements_go_to_review_not_the_bin(self):
+        for text in ("Doors should close slower after a warp",
+                     "every ship needs a spare engine",
+                     "Not every sector needs a shop",
+                     "shields must not recharge during a jump"):
+            self.assertEqual(decide(text, 0.007)["decision"], "review", text)
+
+    def test_a_long_statement_gets_its_own_trigger(self):
+        text = "cameras that get destroyed should make it so you only see your own side of the ship"
+        result = decide(text, 0.007)
+        self.assertEqual(result["decision"], "review")
+        self.assertEqual(result["trigger"], "statement_net")
+
+    def test_a_long_problem_word_piece_is_reviewed_not_dropped(self):
+        text = "the door sound is missing in the cargo bay when you jump through the gate"
+        result = decide(text, 0.007)
+        self.assertEqual(result["decision"], "review")
+        self.assertEqual(result["trigger"], "floor_exception")
+
+    def test_first_person_questions_and_short_lines_are_still_dropped(self):
+        for text in ("we should maybe look at fog sometime",
+                     "I think every room needs a window",
+                     "should doors close slower?",
+                     "every day lol",
+                     "thanks for the quick fix everyone",
+                     "that boss was brutal"):
+            result = decide(text, 0.007)
+            self.assertEqual(result["decision"], "auto_drop", text)
+            self.assertEqual(result["trigger"], "below_review_floor")
+
+    def test_above_the_floor_the_net_does_nothing(self):
+        result = decide("Doors should close slower after a warp today please", 0.30)
+        self.assertNotIn(result["trigger"], ("statement_net", "floor_exception"))
+
+    def test_statement_check_itself(self):
+        self.assertTrue(service.is_requirement_statement("Modules should have 2 to 3 hp"))
+        self.assertFalse(service.is_requirement_statement("should have hp"))
+        self.assertFalse(service.is_requirement_statement("Should doors close slower?"))
+        self.assertFalse(service.is_requirement_statement("we need every door fixed"))
+        self.assertFalse(service.is_requirement_statement("the door closed fast"))
+
+
 class UnchangedRulesTests(unittest.TestCase):
     def test_confident_tasks_still_auto_post(self):
         self.assertEqual(decide("add npcs to the crew UI", 0.95)["decision"], "auto_task")

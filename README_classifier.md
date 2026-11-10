@@ -183,6 +183,44 @@ still go to review through `short_observation` (10 of those 11 were
 real tasks). A short observation in #astra-feedback is therefore
 worth a second look as a separate change.
 
+### The statement net, and long pieces under the floor
+
+A piece under the review floor (0.10) is normally dropped. Three
+exceptions go to review instead: an explicit `TODO:` or `.open` /
+`.assign` marker, a problem word such as "broken", and a requirement
+statement (`is_requirement_statement`): 4 or more words with should,
+needs, must, every, each or similar, not a question, not starting in the
+first person. Triggers: `statement_net` and `floor_exception`.
+
+Why: the model scores short impersonal statements like "Every room should
+have a 1x1 main module" at about 0.007, the same as chat, so no cutoff can
+tell them apart. On the 60 real #astra-feedback pieces, 7 of 50 tasks
+were silently dropped this way.
+
+This also fixes a bug in the earlier problem-word exception: a long piece
+(8 words or more) passed the floor and was then dropped by the LOW cutoff,
+so "the door sound is missing in the cargo bay when you jump through the
+gate" was still lost. Anything that passes a floor exception now ends in
+review.
+
+Measured with the real model:
+
+| | Real tasks dropped silently | Sent to review | Auto-posted wrong |
+|---|---|---|---|
+| `eval_feedback.jsonl` before | 7 of 50 | 11 of 60 | 2 |
+| `eval_feedback.jsonl` after | 2 of 50 | 17 of 60 | 2 |
+| `test.jsonl` before (other channels) | 0 of 29 | 12 of 86 | 4 |
+| `test.jsonl` after (other channels) | 0 of 29 | 18 of 86 | 4 |
+
+In #astra-feedback the 6 extra reviews were 5 real tasks and 1 not a task.
+On the older test set, which is mostly other channels, all 6 extra
+reviews were not tasks, so the net costs about 7 extra reviews per 100
+pieces of ordinary chat. The bot only reads #astra-feedback. The two
+tasks still lost have no cue word ("some get a star only", "in game chat
+for connected players"). The net was designed after seeing the seven
+misses, so treat the first row pair as optimistic and confirm with new
+rulings.
+
 ## Setting the band
 
 Run once, in the AstraThought venv, before going live:
