@@ -11,6 +11,8 @@ The Astrabot tasks cog sends it each human message from #astra-feedback. Tasks g
 | `train.jsonl` | Items the model learns from: older mcdungeons #general, plus Aboard The Astra #task-assignment and #work (`source` says which) |
 | `train_recent_only.jsonl` | Backup of the first training set, #general only |
 | `test.jsonl` | Newer items kept out of training, used to score it |
+| `eval_feedback.jsonl` | Every piece posted in #astra-feedback up to 2026-11-09, labeled by Thea. The real-channel test set. Never train on it |
+| `eval_feedback.py` | Scores the model and the whole pipeline on `eval_feedback.jsonl` (inference only, prints, writes nothing) |
 | `train_task_model.py` | Trains the model, saves it to `tasks-AstraThought-v2\`, prints its score |
 | `check_message.py` | Tries the trained model on one message |
 | `classifier_service.py` | The HTTP service the bot calls, on `127.0.0.1:13383` |
@@ -66,6 +68,39 @@ It finishes by listing its mistakes and printing precision and recall on `test.j
 python check_message.py "add npcs to the crew UI"
 python check_message.py "anyway im off to bed now"
 ```
+
+## The real-channel test set
+
+`test.jsonl` came from other channels, so it says little about
+#astra-feedback, the only channel the bot reads. `eval_feedback.jsonl`
+holds all 60 distinct pieces posted there up to 2026-11-09 (50 tasks,
+10 not tasks), each labeled by Thea. Run it in the venv:
+
+```powershell
+cd C:\codingShit\AstraThought
+.\.venv\Scripts\Activate.ps1
+python eval_feedback.py
+```
+
+It prints precision and recall, every piece the model gets wrong, and
+what the whole pipeline would do: how many pieces are auto-posted,
+sent to review, or auto-dropped, how many auto-posts are wrong, and
+how many real tasks are lost silently. It trains nothing.
+
+Rules for this file:
+
+- Never add its rows to `train.jsonl`, and never tune a threshold
+  against it more than once. It only measures.
+- Grow it. After each batch of new human rulings in #astra-feedback,
+  append those pieces with their labels, so it keeps tracking the real
+  channel.
+- With 60 rows, one piece moves the numbers a lot. Read the counts.
+
+Baseline on 2026-11-09, model `tasks-AstraThought-v2`: precision 93%
+(43 of 46), recall 86% (43 of 50). All 7 missed tasks scored 0.01.
+They are statements with no action word ("Every room should have a 1x1
+main modul", "Modules should have 2 to 3 hp", "in game chat for
+connected players"). All 3 false alarms scored 0.99.
 
 ## Improving it
 
