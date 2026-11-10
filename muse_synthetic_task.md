@@ -12,7 +12,8 @@ WHAT YOU MAY AND MAY NOT DO
   ruin the test set.
 - Do NOT train, retrain or modify any model, and do not change any file
   other than the batch files and the checker's output.
-- Do NOT merge, commit or push anything. Leave that to me.
+- Do not merge anything and do not touch main. At the end, commit as
+  described in the last step.
 
 THE GAME: a co-op space ship game. Vocabulary you can use: ship modules
 (engines, shields, guns, medbay, reactor, cargo bay), rooms and doors,
@@ -121,6 +122,12 @@ than 6 lines in a batch), labels that fail the rules above, and any label
 THEN RUN THE CHECKER. From C:\codingShit\AstraThought, with the project's
 Python, run:
   py check_synthetic.py synthetic\batch*.jsonl
-Report its output to me verbatim (counts kept, dropped, and why), then
-stop. Do not read the review sample's answer key, do not run it with
---score, and do not train anything.
+Report its output to me verbatim (counts kept, dropped, and why). Do not
+read the review sample's answer key, do not run it with --score, and do
+not train anything (I train; you have no GPU).
+
+THEN COMMIT. Create the branch data/synthetic from main, add the
+synthetic\ folder, synthetic_clean.jsonl, synthetic_review_sample.txt
+and synthetic_review_key.json, commit with a short message, and push
+the branch. Do not add or change anything else, and do not touch main.
+Then stop.
