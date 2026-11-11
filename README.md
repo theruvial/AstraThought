@@ -8,6 +8,8 @@ The Astrabot tasks cog sends it each human message from #astra-feedback. Tasks g
 
 **The data files are not in this repo.** The training and test sets are real messages from my team's Discord, so they stay on my machine (`*.jsonl` is in `.gitignore`). The synthetic sets stay local too. The code, tests and docs are all here, and the tables below describe what each file holds.
 
+**This repo is public, and its history was rewritten on 2026-11-11.** Every commit ID changed, and the old history lives on only in the private `AstraThought-old` repo. Delete any older clone and clone this one fresh, and never push from an old clone. The model folder `tasks-AstraThought-v2`, `checkpoints/` and `.venv` are not in git either, so rebuild them by following the steps below.
+
 Final scores for model v2, both at the 0.5 threshold:
 
 | Test set | Pieces | Precision | Recall |
@@ -26,8 +28,7 @@ The real set is the headline number. The stress set is a harder test of what the
 | `test.jsonl` | Newer items kept out of training, used to score it |
 | `eval_feedback.jsonl` | Every piece posted in #astra-feedback up to 2026-11-09, labeled by Thea. The real-channel test set. Never train on it |
 | `eval_feedback.py` | Scores the model and the whole pipeline on `eval_feedback.jsonl` (inference only, prints, writes nothing) |
-| `synthetic_data_prompt.md` | Prompt for generating synthetic training data with ChatGPT, in batches, to fix the short-statement blind spot |
-| `check_synthetic.py` | Cleans what ChatGPT returns: drops bad lines, repeats and anything matching the real data, and makes a spot-check sample (trains nothing) |
+| `check_synthetic.py` | Cleans a batch of invented rows: drops bad lines, repeats and anything matching the real data, and makes a spot-check sample (trains nothing) |
 | `train_task_model.py` | Trains the model, saves it to `tasks-AstraThought-v2\`, prints its score |
 | `check_message.py` | Tries the trained model on one message |
 | `classifier_service.py` | The HTTP service the bot calls, on `127.0.0.1:13383` |

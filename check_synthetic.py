@@ -4,7 +4,7 @@ Run from the AstraThought checkout. It needs no model and no GPU. It
 trains nothing, and it never touches train.jsonl, test.jsonl or
 eval_feedback.jsonl. It only reads them and writes the files named below.
 
-Step 1, clean the batches (see synthetic_data_prompt.md):
+Step 1, clean the batches (the mix per batch is in synthetic/README.md):
 
     python check_synthetic.py batch01.md batch02.md batch03.md
 
@@ -49,7 +49,7 @@ HERE = Path(__file__).resolve().parent
 TASK_KINDS = {"task_requirement", "task_feature", "task_imperative", "task_bug", "task_asset"}
 NOT_TASK_KINDS = {"chat", "question", "suggestion", "own_plan", "request",
                   "changelog", "too_vague", "meta", "observation"}
-# What synthetic_data_prompt.md asks for across all ten batches.
+# The planned mix across all ten batches of 100 (see synthetic/README.md).
 QUOTAS = {
     "task_requirement": 200, "task_feature": 90, "task_imperative": 80,
     "task_bug": 90, "task_asset": 60,

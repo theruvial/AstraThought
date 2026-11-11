@@ -24,3 +24,13 @@ Topics: 01 ship modules and combat, 02 star map and travel, 03 menus and
 lobby, 04 art, icons and animation, 05 sound and music, 06 crew and NPCs,
 07 encounters, events and hazards, 08 balance and numbers, 09 bugs,
 performance and networking, 10 tools, debug UI and dev workflow.
+
+Rules for synthetic data:
+
+- Synthetic rows carry `"source": "synthetic"`. Keep them under about a
+  third of `train.jsonl`, and never add them to `test.jsonl`,
+  `eval_feedback.jsonl` or `eval_stress.jsonl`.
+- Never paste real team messages or anything from the eval files into a
+  prompt for generating more. They would leak into the training data.
+- The labels are the writer's guesses. Run `check_synthetic.py` on every
+  new batch and spot-check its sample before training.
