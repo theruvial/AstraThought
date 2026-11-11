@@ -59,7 +59,7 @@ QUOTAS = {
 MIN_WORDS, MAX_WORDS = 2, 30
 SIMILAR = 0.7   # shared words / all words in either line
 OVERLAP = 0.8   # shared words / words in the shorter line (one line inside the other)
-REFERENCE_FILES = ("train.jsonl", "test.jsonl", "eval_feedback.jsonl")
+REFERENCE_FILES = ("train.jsonl", "test.jsonl", "eval_feedback.jsonl", "eval_stress.jsonl")
 
 
 def normalize(text: str) -> str:

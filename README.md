@@ -104,6 +104,24 @@ They are statements with no action word ("Every room should have a 1x1
 main modul", "Modules should have 2 to 3 hp", "in game chat for
 connected players"). All 3 false alarms scored 0.99.
 
+### The stress set, `eval_stress.jsonl`
+
+100 synthetic rows (49 tasks, 51 not tasks) for stress testing, written on
+2026-11-11 in a different style and on different topics from the synthetic
+training data. It is held out the same way as `eval_feedback.jsonl`:
+
+- Never add its rows to `train.jsonl`. `check_synthetic.py` drops any new
+  synthetic line that matches it.
+- Thea reviewed all 100 labels on 2026-11-11 (`"reviewed": true`). Only
+  three changed, all to tasks. The rows were still written by an AI, so
+  the wording is not the team's own.
+- Score on 2026-11-11 after her review: 52 tasks, 48 not tasks;
+  precision 94% (51 of 54), recall 98% (51 of 52). Before the review it
+  was 89% and 98%. The remaining mistakes are design notes and lists read
+  as tasks ("Fire damage: 2 per second to crew in the room").
+- Nothing scores it automatically yet. `eval_feedback.py` reads only
+  `eval_feedback.jsonl`.
+
 ## Improving it
 
 1. Read the mistakes printed after training.
