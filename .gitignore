@@ -3,3 +3,7 @@ tasks-AstraThought-v*/
 checkpoints/
 __pycache__/
 *.pyc
+
+# Training and evaluation data stays local, never in git
+# (real team chat and synthetic sets alike).
+*.jsonl

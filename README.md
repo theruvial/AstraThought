@@ -4,6 +4,19 @@ A small classifier that decides whether a Discord message is a task, trained on 
 
 The Astrabot tasks cog sends it each human message from #astra-feedback. Tasks go to #todo, unclear items go to #human-intervention, and the rest are dropped. For how the running service works, see `README_classifier.md`.
 
+## Data and results
+
+**The data files are not in this repo.** The training and test sets are real messages from my team's Discord, so they stay on my machine (`*.jsonl` is in `.gitignore`). The synthetic sets stay local too. The code, tests and docs are all here, and the tables below describe what each file holds.
+
+Final scores for model v2, both at the 0.5 threshold:
+
+| Test set | Pieces | Precision | Recall |
+|---|---|---|---|
+| Real #astra-feedback messages, labeled by me | 60 | 98% (46 of 47) | 92% (46 of 50) |
+| Stress set: AI-written rows, reviewed by me | 100 | 94% (51 of 54) | 98% (51 of 52) |
+
+The real set is the headline number. The stress set is a harder test of what the model rejects.
+
 ## Files
 
 | File | What it is |
@@ -24,7 +37,7 @@ The Astrabot tasks cog sends it each human message from #astra-feedback. Tasks g
 
 Each line of the data holds `text`, `label` (1 is a task, 0 is not), `reason`, `position` and `reviewed`. Only `text` and `label` are used for training. `reason` records why something was ruled out.
 
-These files contain real messages from the server. Keep them out of any public repo.
+These files contain real messages from the server, so none of them are committed.
 
 ## Set up (once)
 
