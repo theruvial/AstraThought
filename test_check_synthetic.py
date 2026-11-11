@@ -108,7 +108,8 @@ class LeakTests(unittest.TestCase):
     def test_missing_reference_files_are_fine(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(cs.load_reference(Path(tmp)),
-                             {"train.jsonl": [], "test.jsonl": [], "eval_feedback.jsonl": []})
+                             {"train.jsonl": [], "test.jsonl": [], "eval_feedback.jsonl": [],
+                              "eval_stress.jsonl": []})
 
 
 class AgreementTests(unittest.TestCase):
