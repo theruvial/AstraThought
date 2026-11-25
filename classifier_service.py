@@ -12,7 +12,7 @@ Run from the AstraThought checkout, inside its virtual environment:
 Endpoints (all JSON, loopback only, no auth):
 
     GET  /health
-        {"ok": true, "model_loaded": true, "model_dir": "..."}
+        {"ok": true, "model_loaded": true, "model_dir": "...", "device": "cpu"}
     POST /classify
         {"text": "salvage is broken"}
         -> {"ok": true, "pieces": [{"text": ..., "score": 0.12,
@@ -119,7 +119,10 @@ Model loading:
     The SetFit model is loaded once at startup from
     ./tasks-AstraThought-v2 (env ASTRATHOUGHT_MODEL_DIR). SetFit and
     torch are imported lazily inside load_model(), so importing this
-    module without torch installed does not crash. If the model cannot be loaded, the
+    module without torch installed does not crash. It runs on the CPU by
+    default (env ASTRATHOUGHT_DEVICE or --device, e.g. cuda to use the
+    GPU again), which leaves the GTX 1070 free for other models; one
+    message takes milliseconds either way. If the model cannot be loaded, the
     service still starts and /health reports model_loaded false,
     but /classify and /classify_batch return 503. Never upgrade
     torch past 2.14.0+cu126: 2.15+ dropped GTX 1070 support.
@@ -162,6 +165,8 @@ DISAGREEMENT_SKIP_SCORE = 0.95
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 13383
 DEFAULT_MODEL_DIR = HERE / "tasks-AstraThought-v2"
+# CPU, so the classifier never holds GPU memory; "cuda" puts it back on the GPU.
+DEFAULT_DEVICE = "cpu"
 
 SUGGESTION_MARKERS = (
     "we should",
@@ -529,8 +534,9 @@ DECISION_LOG = DecisionRegistry(labels_path(), overrides_path())
 class Classifier:
     """Holds the loaded SetFit model and classifies split pieces."""
 
-    def __init__(self, model_dir: Path):
+    def __init__(self, model_dir: Path, device: str = DEFAULT_DEVICE):
         self.model_dir = Path(model_dir)
+        self.device = device or DEFAULT_DEVICE
         self.model = None
         self._lock = threading.Lock()
 
@@ -543,7 +549,8 @@ class Classifier:
             log.error("Could not import setfit: %s", exc)
             return False
         try:
-            self.model = SetFitModel.from_pretrained(str(self.model_dir))
+            self.model = SetFitModel.from_pretrained(str(self.model_dir),
+                                                     device=self.device)
         except Exception as exc:  # noqa: BLE001 - report, do not crash
             log.error("Could not load model from %s: %s", self.model_dir, exc)
             return False
@@ -666,6 +673,7 @@ class _Handler(BaseHTTPRequestHandler):
                 "ok": True,
                 "model_loaded": CLASSIFIER.loaded,
                 "model_dir": str(CLASSIFIER.model_dir),
+                "device": CLASSIFIER.device,
             })
             return
         if self.path == "/decisions":
@@ -738,19 +746,21 @@ def main() -> None:
         "CLASSIFIER_PORT", str(DEFAULT_PORT))))
     parser.add_argument("--model-dir", default=os.environ.get(
         "ASTRATHOUGHT_MODEL_DIR", str(DEFAULT_MODEL_DIR)))
+    parser.add_argument("--device", default=os.environ.get(
+        "ASTRATHOUGHT_DEVICE", DEFAULT_DEVICE))
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
     global CLASSIFIER  # noqa: PLW0603 - set once at startup
-    CLASSIFIER = Classifier(args.model_dir)
+    CLASSIFIER = Classifier(args.model_dir, args.device)
     if not CLASSIFIER.load():
         log.warning("Model did not load from %s. /health will report "
                     "model_loaded false and /classify will return 503.",
                     args.model_dir)
     server = ThreadingHTTPServer((args.host, args.port), _Handler)
-    log.info("Classifier service listening on %s:%s, model %s, loaded=%s, "
+    log.info("Classifier service listening on %s:%s, model %s on %s, loaded=%s, "
              "auto_task >= %s, auto_drop <= %s, between them goes to review",
-             args.host, args.port, args.model_dir, CLASSIFIER.loaded,
+             args.host, args.port, args.model_dir, CLASSIFIER.device, CLASSIFIER.loaded,
              HIGH, LOW)
     try:
         server.serve_forever()
