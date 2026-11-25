@@ -75,6 +75,10 @@ Environment variables (all optional):
   Loopback only, no auth, by design.
 - `CLASSIFIER_PORT` - default `13383`.
 - `ASTRATHOUGHT_MODEL_DIR` - default `./tasks-AstraThought-v2`.
+- `ASTRATHOUGHT_DEVICE` - default `cpu` (also `--device`). The service
+  runs on the CPU so it never holds GPU memory; one message takes a
+  fraction of a second. `cuda` puts it back on the GPU. Training
+  (`train_task_model.py`) still uses the GPU when there is one.
 - `TASK_OVERRIDES_PATH` - default `data/task_overrides.json`
   next to the service. The cog writes this file when a human
   rules on a review item or a confirmed task.

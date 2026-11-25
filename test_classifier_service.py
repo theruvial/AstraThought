@@ -160,5 +160,34 @@ class HighScoreOutvotesRuleTests(unittest.TestCase):
         self.assertEqual(decide("asteroid field looks odd", 0.3)["trigger"], "short_observation")
 
 
+class DeviceTests(unittest.TestCase):
+    """The model loads on the CPU unless told otherwise (no real model needed)."""
+
+    def load_with(self, *args):
+        import sys
+        import types
+        from unittest import mock
+        calls = []
+        fake = types.SimpleNamespace(SetFitModel=types.SimpleNamespace(
+            from_pretrained=lambda path, **kw: calls.append(kw) or object()))
+        with mock.patch.dict(sys.modules, {"setfit": fake}):
+            clf = service.Classifier("somewhere", *args)
+            self.assertTrue(clf.load())
+        return clf, calls[0]
+
+    def test_cpu_by_default(self):
+        clf, kwargs = self.load_with()
+        self.assertEqual(kwargs["device"], "cpu")
+        self.assertEqual(clf.device, "cpu")
+
+    def test_device_can_be_chosen(self):
+        _, kwargs = self.load_with("cuda")
+        self.assertEqual(kwargs["device"], "cuda")
+
+    def test_blank_device_means_the_default(self):
+        _, kwargs = self.load_with("")
+        self.assertEqual(kwargs["device"], "cpu")
+
+
 if __name__ == "__main__":
     unittest.main()
